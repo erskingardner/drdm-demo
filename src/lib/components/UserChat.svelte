@@ -32,8 +32,9 @@
 
     let giftWrapSub = ndk.subscribe({ kinds: [1059 as number], "#p": [user.pubkey] });
     giftWrapSub.on("event", async (event) => {
-        conversationRequest = unwrap(ndk, event, ndk.signer! as NDKPrivateKeySigner);
-        if (conversationRequest.kind === 443) {
+        const unwrapped = unwrap(ndk, event, ndk.signer! as NDKPrivateKeySigner);
+        if (unwrapped.kind === 443) {
+            conversationRequest = unwrapped;
             console.log("📬 Received a conversation request");
             receivedConversationRequest = true;
             // Calculate secret key (to see they match)
@@ -48,6 +49,13 @@
                 prekeySigner
             );
             receiverSecretKey = conversation.hexSecretKey();
+        } else if (unwrapped.kind === 444) {
+            console.log("📬 Received a new message");
+            if (conversation) {
+                conversation.handleIncomingMessage(unwrapped);
+            } else {
+                console.log("🚫 Received a message but no conversation exists");
+            }
         } else {
             console.log("🚫 Received a gift-wrap event that is not a conversation request");
             return;
@@ -112,7 +120,7 @@
             Send a conversation request to <Name {ndk} pubkey={otherUser.pubkey} />
         </button>
     </div>
-    <div>
+    <div class="flex flex-col gap-2">
         {#if sentConversationRequest}
             <span class="block">✅ Conversation request sent</span>
         {:else if conversationRequestSent && !sentConversationRequest && receivedConversationRequest}
@@ -158,12 +166,22 @@
                 >
                     {receiverSecretKey}
                 </span>
+                <span class="text-sm italic"
+                    >NB: We're only able to see this because we're doing everything in one page. In
+                    real world use, you would only know that the request was valid if you could
+                    decrypt the message.</span
+                >
             </span>
             {#if decryptedConversationRequestMessage}
                 <h4>
                     Conversation Request from <Name {ndk} pubkey={conversationRequest.pubkey} />
                 </h4>
-                <span class="block">
+                <span class="flex flex-row gap-2 items-center">
+                    <Avatar
+                        {ndk}
+                        pubkey={conversationRequest.pubkey}
+                        class="rounded-full w-8 h-8 my-0"
+                    />
                     {decryptedConversationRequestMessage}
                 </span>
 

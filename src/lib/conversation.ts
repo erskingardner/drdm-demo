@@ -1,4 +1,4 @@
-import { type NDKUser, NDKEvent, NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
+import { type NDKUser, NDKEvent, NDKPrivateKeySigner, NDKRelay } from "@nostr-dev-kit/ndk";
 import NDK from "@nostr-dev-kit/ndk";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { schnorr, secp256k1 } from "@noble/curves/secp256k1";
@@ -34,7 +34,6 @@ export class Conversation {
         new Map();
 
     MAX_SKIP = 100;
-    INITIAL_RATCHET_INPUT = "nostr";
 
     // How do we track chain and message keys?
     // How do we store decrypted messages?
@@ -74,8 +73,7 @@ export class Conversation {
         if (!prekey) throw new Error("Invalid or Missing Recipient Prekey");
 
         // Generate an ephemeral keypair for the sender to use in the DH exchange
-        this.DHSendingKeypair.privateKey = schnorr.utils.randomPrivateKey();
-        this.DHSendingKeypair.publicKey = schnorr.getPublicKey(this.DHSendingKeypair.privateKey);
+        this.generateDHKeypair();
 
         // Set the recipients's pubkey as the initial DHReceivingPubkey
         this.DHReceivingPubkey = hexToBytes(this.receiver.pubkey);
@@ -115,12 +113,8 @@ export class Conversation {
         const messageContent = message || "Hey, let's start a conversation!";
         const symmetricRatchetOut = turnSymmetricRatchet(this.chainKeySending);
         this.chainKeySending = symmetricRatchetOut.chainKey;
-        const encryptedMessage = nip44.v2.encrypt(messageContent, symmetricRatchetOut.messageKey!);
-
-        // ==========================================================
-        // TODO: This might need to happen after we set up the event
         this.sendingChainMessageCount++;
-        // ==========================================================
+        const encryptedMessage = nip44.v2.encrypt(messageContent, symmetricRatchetOut.messageKey!);
 
         const conversationRequest = new NDKEvent(this.ndk, {
             kind: 443,
@@ -130,7 +124,7 @@ export class Conversation {
             tags: [
                 ["p", this.receiver.pubkey],
                 ["prekey", prekey.content],
-                ["ephemeral", bytesToHex(this.DHSendingKeypair.publicKey)]
+                ["ephemeral", bytesToHex(this.DHSendingKeypair.publicKey!)]
             ]
         });
 
@@ -147,12 +141,8 @@ export class Conversation {
         await wrapEvent.publish();
     }
 
-    public sendMessage(message: string) {
-        // Encrypt the message with the current sending chain key
-        // Create a new DRDM kind 444 event & GW it & publish it
-    }
-
     // TODO: This will need better error handling
+    // We'll only know it's no good if we can't decrypt the message
     public async handleConversationRequest(
         event: NDKEvent,
         prekeySigner: NDKPrivateKeySigner
@@ -204,7 +194,40 @@ export class Conversation {
         return decryptedMessage;
     }
 
-    public handleIncomingMessage() {}
+    public async sendMessage(message: string): Promise<Set<NDKRelay>> {
+        // Check we have a signer for the sender
+        if (!this.senderSigner.privateKey) throw new Error("Sender private key not set");
+        const encryptedMessage = this.ratchetEncrypt(message);
+        const event = new NDKEvent(this.ndk, {
+            kind: 444,
+            created_at: Math.floor(Date.now() / 1000),
+            pubkey: this.sender.pubkey,
+            content: encryptedMessage,
+            tags: [
+                ["p", this.receiver.pubkey],
+                ["dh_sending", bytesToHex(this.DHSendingKeypair.publicKey!)],
+                ["current_index", this.sendingChainMessageCount.toString()],
+                ["previous_length", this.previousSendingChainMessageCount.toString()]
+            ]
+        });
+
+        const wrapEvent = await giftWrap(this.ndk, event, this.receiver.pubkey, this.senderSigner);
+        return await wrapEvent.publish();
+    }
+
+    public handleIncomingMessage(event: NDKEvent): NDKEvent | void {
+        // Check event tags
+        if (event.getMatchingTags("dh_sending").length === 0)
+            throw new Error("Missing public key for decryption");
+        if (event.getMatchingTags("current_index").length === 0)
+            throw new Error("Missing current index for decryption");
+        if (event.getMatchingTags("previous_length").length === 0)
+            throw new Error("Missing previous index for decryption");
+
+        // Ratchet as needed, store message if missed, return decrypted message in the event
+        // Decrypt message
+        const decryptedDvent = this.ratchetDecrypt(event);
+    }
 
     public secretKeySet(): boolean {
         return this.secretKey !== undefined;
@@ -236,5 +259,116 @@ export class Conversation {
         if (!valid) return null;
 
         return prekey;
+    }
+
+    /**
+     * Generates a Diffie-Hellman key pair for the conversation.
+     * The private key is randomly generated, and the public key is derived from the private key.
+     */
+    private generateDHKeypair() {
+        this.DHSendingKeypair.privateKey = schnorr.utils.randomPrivateKey();
+        this.DHSendingKeypair.publicKey = schnorr.getPublicKey(this.DHSendingKeypair.privateKey);
+    }
+
+    private ratchetEncrypt(message: string): string {
+        // We only do a symmetric ratchet here because we'll do a DH ratchet
+        // each time we see a new message from the other party.
+        const symmetricRatchetOut = turnSymmetricRatchet(this.chainKeySending!);
+        this.sendingChainMessageCount++;
+        this.chainKeySending = symmetricRatchetOut.chainKey;
+
+        // Encrypt the message
+        return nip44.v2.encrypt(message, symmetricRatchetOut.messageKey!);
+    }
+
+    /**
+     * TODO: NOT SURE IF THIS WORKS YET
+     * @param event
+     * @returns
+     */
+    private ratchetDecrypt(event: NDKEvent): NDKEvent {
+        // If we have the message key already, decrypt it and return it
+        let decryptedEvent: NDKEvent | null = this.trySkippedMessages(event);
+        if (decryptedEvent !== null) return decryptedEvent;
+
+        // If we have a new DH key, we need to ratchet first
+        // Preserving the state of our current message chain
+        const dhKey = event.getMatchingTags("dh_sending")[0][1];
+        if (hexToBytes(dhKey) !== this.DHReceivingPubkey) {
+            this.skipMessageKeys(event);
+            this.previousSendingChainMessageCount = this.sendingChainMessageCount;
+            this.sendingChainMessageCount = 0;
+            this.receivingChainMessageCount = 0;
+            this.DHReceivingPubkey = hexToBytes(dhKey);
+            const newDH = secp256k1
+                .getSharedSecret(this.DHSendingKeypair.privateKey!, this.DHReceivingPubkey)
+                .subarray(1, 33);
+            const ratchetOut = turnDhRatchet(this.rootKey!, newDH);
+            this.rootKey = ratchetOut.rootKey;
+            this.chainKeyReceiving = ratchetOut.chainKey;
+            this.generateDHKeypair();
+            const newNewDH = secp256k1
+                .getSharedSecret(this.DHSendingKeypair.privateKey!, this.DHReceivingPubkey)
+                .subarray(1, 33);
+            const newRatchetOut = turnDhRatchet(this.rootKey!, newNewDH);
+            this.rootKey = newRatchetOut.rootKey;
+            this.chainKeySending = newRatchetOut.chainKey;
+        }
+        this.skipMessageKeys(event);
+        const symmetricRatchetOut = turnSymmetricRatchet(this.chainKeyReceiving!);
+        this.chainKeyReceiving = symmetricRatchetOut.chainKey;
+        this.receivingChainMessageCount++;
+        event.content = nip44.v2.decrypt(event.content, symmetricRatchetOut.messageKey!);
+        return event;
+    }
+
+    /**
+     * Tries to decrypt skipped messages in the conversation.
+     *
+     * @param event - The NDKEvent object representing the current event.
+     * @returns The decrypted NDKEvent object if a skipped message is successfully decrypted, otherwise null.
+     */
+    private trySkippedMessages(event: NDKEvent): NDKEvent | null {
+        if (this.mkSkipped.size === 0) return null;
+        let decryptedEvent: NDKEvent | null = null;
+        const dhKey = event.getMatchingTags("dh_sending")[0][1];
+        const currentMessageNumber = parseInt(event.getMatchingTags("current_index")[0][1]);
+        const key = {
+            ratchetPubkey: hexToBytes(dhKey),
+            messageNumber: currentMessageNumber
+        };
+        if (this.mkSkipped.has(key)) {
+            const mk = this.mkSkipped.get(key);
+            this.mkSkipped.delete(key);
+            const decryptedMessage = nip44.v2.decrypt(event.content, mk!);
+            event.content = decryptedMessage;
+            decryptedEvent = event;
+        }
+        return decryptedEvent;
+    }
+
+    /**
+     * Skips and stores message keys based on the provided event.
+     * @param event - The NDKEvent object containing information about the event.
+     */
+    private skipMessageKeys(event: NDKEvent): void {
+        const currentMessageNumber = parseInt(event.getMatchingTags("current_index")[0][1]);
+        const prevLength = event.getMatchingTags("previous_length")[0][1];
+
+        // Bail early if we've hit our skip limit
+        if (this.receivingChainMessageCount + this.MAX_SKIP < parseInt(prevLength)) return;
+        if (this.chainKeyReceiving) {
+            while (this.receivingChainMessageCount < currentMessageNumber) {
+                const symRatchetOut = turnSymmetricRatchet(this.chainKeyReceiving);
+                this.mkSkipped.set(
+                    {
+                        ratchetPubkey: this.DHReceivingPubkey!,
+                        messageNumber: this.receivingChainMessageCount
+                    },
+                    symRatchetOut.messageKey!
+                );
+                this.receivingChainMessageCount++;
+            }
+        }
     }
 }
