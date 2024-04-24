@@ -22,10 +22,13 @@
     let sentConversationRequest = false;
     let receivedConversationRequest = false;
     let conversationRequest: NDKEvent | null = null;
-
+    let decryptedConversationRequestMessage: string | null = null;
+    let showPrekeyEventBlock = false;
     let showConversationEventBlock = false;
     let conversation: Conversation | null = null;
     let receiverSecretKey: string;
+
+    let conversationAccepted = false;
 
     let giftWrapSub = ndk.subscribe({ kinds: [1059 as number], "#p": [user.pubkey] });
     giftWrapSub.on("event", async (event) => {
@@ -40,7 +43,10 @@
                 ndk.signer as NDKPrivateKeySigner,
                 otherUser
             );
-            await conversation.handleConversationRequest(conversationRequest, prekeySigner);
+            decryptedConversationRequestMessage = await conversation.handleConversationRequest(
+                conversationRequest,
+                prekeySigner
+            );
             receiverSecretKey = conversation.hexSecretKey();
         } else {
             console.log("🚫 Received a gift-wrap event that is not a conversation request");
@@ -55,9 +61,17 @@
     function toggleConversationEventBlock() {
         showConversationEventBlock = !showConversationEventBlock;
     }
+
+    function togglePrekeyEventBlock() {
+        showPrekeyEventBlock = !showPrekeyEventBlock;
+    }
+
+    function showMessageForm() {
+        conversationAccepted = true;
+    }
 </script>
 
-<div class="max-w-[50%] border border-gray-400 rounded-md p-6 flex flex-col gap-6">
+<div class="max-w-[50%] border border-gray-400 rounded-md p-6 flex flex-col gap-4">
     <div class="flex flex-row gap-2 items-center">
         <Avatar {ndk} {user} class="rounded-full bg-transparent ring-1 ring-black w-12 h-12 my-0" />
         <div class="flex flex-col gap-0 truncate">
@@ -68,9 +82,20 @@
         </div>
     </div>
     <div class="text-sm">
-        <h3><Name {ndk} pubkey={user.pubkey} />'s Prekey</h3>
-        <pre>{JSON.stringify(prekey.rawEvent(), undefined, 2)}</pre>
+        <h3>
+            <Name {ndk} pubkey={user.pubkey} />'s Prekey
+            <span class="text-base font-normal ml-4">
+                <a on:click={togglePrekeyEventBlock} href="#">
+                    {showPrekeyEventBlock ? "Hide" : "Show"} event
+                </a>
+            </span>
+        </h3>
+
+        {#if showPrekeyEventBlock}
+            <pre>{JSON.stringify(prekey.rawEvent(), undefined, 2)}</pre>
+        {/if}
     </div>
+    <hr class="mt-0" />
     <div>
         <button
             disabled={conversationRequestSent}
@@ -92,7 +117,7 @@
             <span class="block">✅ Conversation request sent</span>
         {:else if conversationRequestSent && !sentConversationRequest && receivedConversationRequest}
             <span class="block"
-                >✅ Received for conversation request <a
+                >✅ Received conversation request <a
                     on:click={toggleConversationEventBlock}
                     href="#"
                 >
@@ -134,6 +159,29 @@
                     {receiverSecretKey}
                 </span>
             </span>
+            {#if decryptedConversationRequestMessage}
+                <h4>
+                    Conversation Request from <Name {ndk} pubkey={conversationRequest.pubkey} />
+                </h4>
+                <span class="block">
+                    {decryptedConversationRequestMessage}
+                </span>
+
+                {#if conversationAccepted}
+                    <form>
+                        <div class="flex flex-col gap-2">
+                            <textarea
+                                placeholder="What do you want to say?"
+                                id="message"
+                                class="border rounded-md p-2"
+                            ></textarea>
+                            <input type="submit" value="Send" class="border rounded-md p-2" />
+                        </div>
+                    </form>
+                {:else}
+                    <button on:click={showMessageForm} class="mt-4">Accept?</button>
+                {/if}
+            {/if}
         {/if}
     </div>
 </div>

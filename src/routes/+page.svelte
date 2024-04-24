@@ -240,13 +240,6 @@
                 on:sendConversationRequest={sendConversationRequest}
             />
         </div>
-        <!-- <form>
-            <div class="flex flex-col gap-2">
-                <label for="message">Message</label>
-                <textarea placeholder="Enter your message" id="message" class="border rounded-md"
-                ></textarea>
-            </div>
-        </form> -->
     {:else}
         <p>
             First, we'll generate Alice and Bob as new users with some basic profile data and a

@@ -152,7 +152,11 @@ export class Conversation {
         // Create a new DRDM kind 444 event & GW it & publish it
     }
 
-    public async handleConversationRequest(event: NDKEvent, prekeySigner: NDKPrivateKeySigner) {
+    // TODO: This will need better error handling
+    public async handleConversationRequest(
+        event: NDKEvent,
+        prekeySigner: NDKPrivateKeySigner
+    ): Promise<string> {
         const senderPubkey = event.pubkey;
         const ephemeralPubkey = event.getMatchingTags("ephemeral")[0][1];
         const prekey = event.getMatchingTags("prekey")[0][1];
@@ -196,6 +200,8 @@ export class Conversation {
         DH3 = null;
         combinedDH = null;
         // TODO: What else to delete??
+
+        return decryptedMessage;
     }
 
     public handleIncomingMessage() {}
