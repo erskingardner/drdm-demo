@@ -65,18 +65,15 @@ export class Conversation {
         this.DHSendingKeypair.publicKey = schnorr.getPublicKey(this.DHSendingKeypair.privateKey);
 
         // Calculate the shared root key (DH the various pairs and then concat and hash)
-        let DH1: Uint8Array | null = secp256k1.getSharedSecret(
-            this.senderSigner.privateKey,
-            "02" + prekey.content
-        );
-        let DH2: Uint8Array | null = secp256k1.getSharedSecret(
-            this.DHSendingKeypair.privateKey,
-            "02" + this.receiver.pubkey
-        );
-        let DH3: Uint8Array | null = secp256k1.getSharedSecret(
-            this.DHSendingKeypair.privateKey,
-            "02" + prekey.content
-        );
+        let DH1: Uint8Array | null = secp256k1
+            .getSharedSecret(this.senderSigner.privateKey, "02" + prekey.content)
+            .subarray(1, 33);
+        let DH2: Uint8Array | null = secp256k1
+            .getSharedSecret(this.DHSendingKeypair.privateKey, "02" + this.receiver.pubkey)
+            .subarray(1, 33);
+        let DH3: Uint8Array | null = secp256k1
+            .getSharedSecret(this.DHSendingKeypair.privateKey, "02" + prekey.content)
+            .subarray(1, 33);
         let combinedDH: Uint8Array | null = new Uint8Array(DH1.length + DH2.length + DH3.length);
         combinedDH.set(DH1, 0);
         combinedDH.set(DH2, DH1.length);
@@ -145,18 +142,15 @@ export class Conversation {
         if ((await prekeySigner.user()).pubkey !== prekey) throw new Error("Prekeys don't match");
 
         // Calculate the shared root key (DH the various pairs and then concat and hash)
-        let DH1: Uint8Array | null = secp256k1.getSharedSecret(
-            prekeySigner.privateKey!,
-            "02" + senderPubkey
-        );
-        let DH2: Uint8Array | null = secp256k1.getSharedSecret(
-            this.senderSigner.privateKey!,
-            "02" + ephemeralPubkey
-        );
-        let DH3: Uint8Array | null = secp256k1.getSharedSecret(
-            prekeySigner.privateKey!,
-            "02" + ephemeralPubkey
-        );
+        let DH1: Uint8Array | null = secp256k1
+            .getSharedSecret(prekeySigner.privateKey!, "02" + senderPubkey)
+            .subarray(1, 33);
+        let DH2: Uint8Array | null = secp256k1
+            .getSharedSecret(this.senderSigner.privateKey!, "02" + ephemeralPubkey)
+            .subarray(1, 33);
+        let DH3: Uint8Array | null = secp256k1
+            .getSharedSecret(prekeySigner.privateKey!, "02" + ephemeralPubkey)
+            .subarray(1, 33);
         let combinedDH: Uint8Array | null = new Uint8Array(DH1.length + DH2.length + DH3.length);
         combinedDH.set(DH1, 0);
         combinedDH.set(DH2, DH1.length);

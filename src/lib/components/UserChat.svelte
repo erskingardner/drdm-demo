@@ -122,7 +122,17 @@
         {/if}
         {#if receiverRootKey}
             <span class="block">
-                🔑 Receiver calculated root key: <span class="font-mono text-sm">
+                🔑 Receiver calculated root key <span
+                    class="font-semibold {initialRootKey === receiverRootKey
+                        ? 'text-green-600'
+                        : 'text-red-600'}"
+                    >{initialRootKey === receiverRootKey ? "MATCHES" : "DOESN'T MATCH"}</span
+                >:
+                <span
+                    class="font-mono p-1 text-sm {initialRootKey === receiverRootKey
+                        ? 'bg-green-300'
+                        : 'bg-red-300'}"
+                >
                     {receiverRootKey}
                 </span>
             </span>
