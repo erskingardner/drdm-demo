@@ -17,7 +17,7 @@
     export let prekeySigner: NDKPrivateKeySigner;
 
     export let conversationRequestSent: boolean;
-    export let initialRootKey: string | null;
+    export let initialSecretKey: string | null;
 
     let sentConversationRequest = false;
     let receivedConversationRequest = false;
@@ -25,15 +25,15 @@
 
     let showConversationEventBlock = false;
     let conversation: Conversation | null = null;
-    let receiverRootKey: string;
+    let receiverSecretKey: string;
 
     let giftWrapSub = ndk.subscribe({ kinds: [1059 as number], "#p": [user.pubkey] });
     giftWrapSub.on("event", async (event) => {
         conversationRequest = unwrap(ndk, event, ndk.signer! as NDKPrivateKeySigner);
         if (conversationRequest.kind === 443) {
-            console.log("📨 Received a conversation request");
+            console.log("📬 Received a conversation request");
             receivedConversationRequest = true;
-            // Calculate root key (to see they match)
+            // Calculate secret key (to see they match)
             conversation = new Conversation(
                 ndk,
                 user,
@@ -41,7 +41,7 @@
                 otherUser
             );
             await conversation.handleConversationRequest(conversationRequest, prekeySigner);
-            receiverRootKey = conversation.hexRootKey();
+            receiverSecretKey = conversation.hexSecretKey();
         } else {
             console.log("🚫 Received a gift-wrap event that is not a conversation request");
             return;
@@ -49,9 +49,7 @@
     });
 
     onMount(async () => {
-        await giftWrapSub.start().then(() => {
-            console.log("Subscribed to gift-wrapped events");
-        });
+        await giftWrapSub.start();
     });
 
     function toggleConversationEventBlock() {
@@ -113,27 +111,27 @@
         {:else}
             <span class="block">⏳ Waiting for conversation requests</span>
         {/if}
-        {#if initialRootKey && sentConversationRequest}
+        {#if initialSecretKey && sentConversationRequest}
             <span class="block">
-                🔑 Sender calculated root key: <span class="font-mono text-sm">
-                    {initialRootKey}
+                🔑 Sender calculated secret key: <span class="font-mono text-sm">
+                    {initialSecretKey}
                 </span>
             </span>
         {/if}
-        {#if receiverRootKey}
+        {#if receiverSecretKey}
             <span class="block">
-                🔑 Receiver calculated root key <span
-                    class="font-semibold {initialRootKey === receiverRootKey
+                🔑 Receiver calculated secret key <span
+                    class="font-semibold {initialSecretKey === receiverSecretKey
                         ? 'text-green-600'
                         : 'text-red-600'}"
-                    >{initialRootKey === receiverRootKey ? "MATCHES" : "DOESN'T MATCH"}</span
+                    >{initialSecretKey === receiverSecretKey ? "MATCHES" : "DOESN'T MATCH"}</span
                 >:
                 <span
-                    class="font-mono p-1 text-sm {initialRootKey === receiverRootKey
+                    class="font-mono p-1 text-sm {initialSecretKey === receiverSecretKey
                         ? 'bg-green-300'
                         : 'bg-red-300'}"
                 >
-                    {receiverRootKey}
+                    {receiverSecretKey}
                 </span>
             </span>
         {/if}

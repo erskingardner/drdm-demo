@@ -30,7 +30,6 @@ export async function giftWrap(
         tags: []
     });
     await sealEvent.sign(signer);
-    console.log("Seal Event (inside GW, doesn't get published)\n", sealEvent.rawEvent());
 
     const gwSigner = NDKPrivateKeySigner.generate();
     const gwPubkey = (await gwSigner.user()).pubkey;

@@ -33,7 +33,7 @@
     let conversationRequestRecieved = false;
     let receivedConversationRequest: NDKEvent | null = null;
 
-    let initialRootKey: string | null = null;
+    let initialSecretKey: string | null = null;
     let haveStarted = false;
 
     /**
@@ -177,7 +177,7 @@
             conversationRequestRecieved = false;
             receivedConversationRequest = null;
             conversationRequestSent = false;
-            initialRootKey = null;
+            initialSecretKey = null;
 
             console.log("✅ Reset complete");
         }
@@ -188,7 +188,6 @@
      * This does the initial ECDH key exchange and sends the conversation request event
      * */
     async function sendConversationRequest(event: CustomEvent) {
-        console.log(event.detail);
         const { ndk, sender, recipient } = event.detail;
         console.log("📨 Sending conversation request...");
         const conversation = new Conversation(
@@ -198,8 +197,7 @@
             recipient
         );
         await conversation.initConversation().then(() => {
-            initialRootKey = conversation.hexRootKey();
-            console.log("🔑 ECDH key exchange complete");
+            initialSecretKey = conversation.hexSecretKey();
         });
     }
 
@@ -228,7 +226,7 @@
                 prekey={alicePrekey}
                 prekeySigner={alicePrekeySigner}
                 bind:conversationRequestSent
-                bind:initialRootKey
+                bind:initialSecretKey
                 on:sendConversationRequest={sendConversationRequest}
             />
             <UserChat
@@ -238,7 +236,7 @@
                 prekey={bobPrekey}
                 prekeySigner={bobPrekeySigner}
                 bind:conversationRequestSent
-                bind:initialRootKey
+                bind:initialSecretKey
                 on:sendConversationRequest={sendConversationRequest}
             />
         </div>

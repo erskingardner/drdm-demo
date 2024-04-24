@@ -1,10 +1,12 @@
 import { type NDKUser, NDKEvent, NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
 import NDK from "@nostr-dev-kit/ndk";
-import { bytesToHex } from "@noble/hashes/utils";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { schnorr, secp256k1 } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha256";
 import { giftWrap } from "./giftWrap";
 import { extract as hkdf_extract, expand as hkdf_expand } from "@noble/hashes/hkdf";
+import { turnDhRatchet, turnSymmetricRatchet } from "./symmetricalRatchet";
+import { nip44 } from "nostr-tools";
 
 export const utf8Encoder: TextEncoder = new TextEncoder();
 
@@ -18,9 +20,10 @@ export class Conversation {
     public ndk: NDK;
     public sender: NDKUser;
     public receiver: NDKUser;
-    public senderSigner: NDKPrivateKeySigner;
+    private _senderSigner: NDKPrivateKeySigner;
     private DHSendingKeypair: { privateKey?: Uint8Array; publicKey?: Uint8Array } = {};
     private DHReceivingPubkey?: Uint8Array;
+    private secretKey?: Uint8Array;
     private rootKey?: Uint8Array;
     private chainKeySending?: Uint8Array;
     private chainKeyReceiving?: Uint8Array;
@@ -29,6 +32,9 @@ export class Conversation {
     private previousSendingChainMessageCount: number = 0;
     private mkSkipped: Map<{ ratchetPubkey: Uint8Array; messageNumber: number }, Uint8Array> =
         new Map();
+
+    MAX_SKIP = 100;
+    INITIAL_RATCHET_INPUT = "nostr";
 
     // How do we track chain and message keys?
     // How do we store decrypted messages?
@@ -48,11 +54,18 @@ export class Conversation {
 
         // For this demo we only allow PK signer
         // This is the senders nostr identity key signer
-        this.senderSigner = senderSigner;
+        this._senderSigner = senderSigner;
+    }
+
+    get senderSigner() {
+        return this._senderSigner;
+    }
+
+    set senderSigner(signer: NDKPrivateKeySigner) {
+        this._senderSigner = signer;
     }
 
     public async initConversation(message?: string) {
-        console.log("Initializing conversation request...");
         // Check we have a signer for the sender
         if (!this.senderSigner.privateKey) throw new Error("Sender private key not set");
 
@@ -63,6 +76,9 @@ export class Conversation {
         // Generate an ephemeral keypair for the sender to use in the DH exchange
         this.DHSendingKeypair.privateKey = schnorr.utils.randomPrivateKey();
         this.DHSendingKeypair.publicKey = schnorr.getPublicKey(this.DHSendingKeypair.privateKey);
+
+        // Set the recipients's pubkey as the initial DHReceivingPubkey
+        this.DHReceivingPubkey = hexToBytes(this.receiver.pubkey);
 
         // Calculate the shared root key (DH the various pairs and then concat and hash)
         let DH1: Uint8Array | null = secp256k1
@@ -78,13 +94,14 @@ export class Conversation {
         combinedDH.set(DH1, 0);
         combinedDH.set(DH2, DH1.length);
         combinedDH.set(DH3, DH1.length + DH2.length);
-        this.rootKey = hkdf_extract(sha256, combinedDH, "salt");
 
-        console.log("DH1", bytesToHex(DH1));
-        console.log("DH2", bytesToHex(DH2));
-        console.log("DH3", bytesToHex(DH3));
-        console.log("combinedDH", bytesToHex(combinedDH));
-        console.log("rootKey", bytesToHex(this.rootKey));
+        // Set initial secret key
+        this.secretKey = hkdf_extract(sha256, combinedDH, "salt");
+
+        // Do initial DH ratchet
+        const ratchetOut = turnDhRatchet(this.secretKey, DH2);
+        this.rootKey = ratchetOut.rootKey;
+        this.chainKeySending = ratchetOut.chainKey;
 
         // // Delete (as securely as we can in JS) the ephemeral private key and all the DH outputs
         DH1 = null;
@@ -96,7 +113,14 @@ export class Conversation {
         // ✅ Create conversation request event
         // DON'T SIGN IT. We're going to gift-wrap it.
         const messageContent = message || "Hey, let's start a conversation!";
-        const encryptedMessage = "TODO: encrypt messageContent with double ratchet, not NIP-44";
+        const symmetricRatchetOut = turnSymmetricRatchet(this.chainKeySending);
+        this.chainKeySending = symmetricRatchetOut.chainKey;
+        const encryptedMessage = nip44.v2.encrypt(messageContent, symmetricRatchetOut.messageKey!);
+
+        // ==========================================================
+        // TODO: This might need to happen after we set up the event
+        this.sendingChainMessageCount++;
+        // ==========================================================
 
         const conversationRequest = new NDKEvent(this.ndk, {
             kind: 443,
@@ -110,11 +134,6 @@ export class Conversation {
             ]
         });
 
-        console.log(
-            "Conversation Request Event (rumor, doesn't get published)\n",
-            conversationRequest.rawEvent()
-        );
-
         // ✅ Gift-wrap the conversation request event
         const wrapEvent = await giftWrap(
             this.ndk,
@@ -126,7 +145,6 @@ export class Conversation {
         // Publish the gift-wrapped conversation request
         // TODO: Publish ONLY to recipient's read relays that support AUTH
         await wrapEvent.publish();
-        console.log("Gift Wrap Event Published\n", wrapEvent.rawEvent());
     }
 
     public sendMessage(message: string) {
@@ -155,27 +173,40 @@ export class Conversation {
         combinedDH.set(DH1, 0);
         combinedDH.set(DH2, DH1.length);
         combinedDH.set(DH3, DH1.length + DH2.length);
-        this.rootKey = hkdf_extract(sha256, combinedDH, "salt");
 
-        console.log("DH1 Receiver", bytesToHex(DH1));
-        console.log("DH2 Receiver", bytesToHex(DH2));
-        console.log("DH3 Receiver", bytesToHex(DH3));
-        console.log("combinedDH Receiver", bytesToHex(combinedDH));
-        console.log("rootKey Receiver", bytesToHex(this.rootKey));
+        // Set initial secret key
+        this.secretKey = hkdf_extract(sha256, combinedDH, "salt");
 
-        // Delete (as securely as we can in JS) the ephemeral private key and all the DH outputs
-        // Generate the shared chain key
+        // Do initial DH ratchet
+        const ratchetOut = turnDhRatchet(this.secretKey, DH2);
+        this.rootKey = ratchetOut.rootKey;
+        this.chainKeyReceiving = ratchetOut.chainKey;
+
+        // Do initial symmetric ratchet
+        const symmetricRatchetOut = turnSymmetricRatchet(this.chainKeyReceiving);
+        this.chainKeySending = symmetricRatchetOut.chainKey;
+
+        // TODO: Need to handle counts and skipped messages
+        const decryptedMessage = nip44.v2.decrypt(event.content, symmetricRatchetOut.messageKey!);
+        console.log("🔓 Decrypted Message", decryptedMessage);
+
+        // Delete (as securely as we can in JS) the DH outputs
+        DH1 = null;
+        DH2 = null;
+        DH3 = null;
+        combinedDH = null;
+        // TODO: What else to delete??
     }
 
     public handleIncomingMessage() {}
 
-    public rootKeySet(): boolean {
-        return this.rootKey !== undefined;
+    public secretKeySet(): boolean {
+        return this.secretKey !== undefined;
     }
 
-    public hexRootKey(): string {
-        if (!this.rootKey) throw new Error("Root key not set");
-        return bytesToHex(this.rootKey);
+    public hexSecretKey(): string {
+        if (!this.secretKey) throw new Error("Secret key not set");
+        return bytesToHex(this.secretKey);
     }
 
     private async fetchAndValidatePrekey(): Promise<NDKEvent | null> {
@@ -199,9 +230,5 @@ export class Conversation {
         if (!valid) return null;
 
         return prekey;
-    }
-
-    private ratchetEncrypt(plaintext: string): string {
-        // ratchet the root and chain keys
     }
 }
