@@ -18,6 +18,7 @@
 
     export let conversationRequestSent: boolean;
     export let initialSecretKey: string | null;
+    export let chatEnabled: boolean;
 
     let sentConversationRequest = false;
     let receivedConversationRequest = false;
@@ -28,7 +29,9 @@
     let conversation: Conversation | null = null;
     let receiverSecretKey: string;
 
-    let conversationAccepted = false;
+    let messageToSend: string = "";
+
+    let decryptedMessages: string[] = [];
 
     let giftWrapSub = ndk.subscribe({ kinds: [1059 as number], "#p": [user.pubkey] });
     giftWrapSub.on("event", async (event) => {
@@ -51,8 +54,17 @@
             receiverSecretKey = conversation.hexSecretKey();
         } else if (unwrapped.kind === 444) {
             console.log("📬 Received a new message");
+            if (!conversation) {
+                conversation = new Conversation(
+                    ndk,
+                    user,
+                    ndk.signer as NDKPrivateKeySigner,
+                    otherUser
+                );
+            }
             if (conversation) {
-                conversation.handleIncomingMessage(unwrapped);
+                const decryptedEvent = conversation.handleIncomingMessage(unwrapped);
+                console.log("🔓 Decrypted message: ", decryptedEvent!.content);
             } else {
                 console.log("🚫 Received a message but no conversation exists");
             }
@@ -75,7 +87,19 @@
     }
 
     function showMessageForm() {
-        conversationAccepted = true;
+        // dispatch an event to the parent component to enable form for other user
+        console.log("✅ Accepted converstion request!");
+        dispatch("chatAccepted");
+    }
+
+    async function sendMessage() {
+        if (!conversation) {
+            console.error("🚫 No conversation exists to send a message");
+            return;
+        }
+        await conversation?.sendMessage(messageToSend);
+        // reset input value
+        messageToSend = "";
     }
 </script>
 
@@ -132,33 +156,35 @@
                     {showConversationEventBlock ? "Hide" : "Show"} decrypted event
                 </a></span
             >
-            <span class="block">
-                {#if showConversationEventBlock}
+            {#if showConversationEventBlock}
+                <span class="block">
                     <pre class="mt-0 pt-0">{JSON.stringify(
                             conversationRequest?.rawEvent(),
                             undefined,
                             2
                         )}</pre>
-                {/if}
-            </span>
+                </span>
+            {/if}
         {:else}
             <span class="block">⏳ Waiting for conversation requests</span>
         {/if}
         {#if initialSecretKey && sentConversationRequest}
-            <span class="block">
-                🔑 Sender calculated secret key: <span class="font-mono text-sm">
+            <span class="block whitespace-wrap truncate">
+                🔑 Sender calculated secret key <br />
+                <span class="font-mono text-sm">
                     {initialSecretKey}
                 </span>
             </span>
         {/if}
         {#if receiverSecretKey}
-            <span class="block">
-                🔑 Receiver calculated secret key <span
+            <span class="block whitespace-wrap truncate">
+                🔑 Receiver calculated secret key <br />
+                <span
                     class="font-semibold {initialSecretKey === receiverSecretKey
                         ? 'text-green-600'
                         : 'text-red-600'}"
                     >{initialSecretKey === receiverSecretKey ? "MATCHES" : "DOESN'T MATCH"}</span
-                >:
+                >
                 <span
                     class="font-mono p-1 text-sm {initialSecretKey === receiverSecretKey
                         ? 'bg-green-300'
@@ -172,7 +198,7 @@
                     decrypt the message.</span
                 >
             </span>
-            {#if decryptedConversationRequestMessage}
+            {#if decryptedConversationRequestMessage && !chatEnabled}
                 <h4>
                     Conversation Request from <Name {ndk} pubkey={conversationRequest.pubkey} />
                 </h4>
@@ -185,21 +211,31 @@
                     {decryptedConversationRequestMessage}
                 </span>
 
-                {#if conversationAccepted}
-                    <form>
-                        <div class="flex flex-col gap-2">
-                            <textarea
-                                placeholder="What do you want to say?"
-                                id="message"
-                                class="border rounded-md p-2"
-                            ></textarea>
-                            <input type="submit" value="Send" class="border rounded-md p-2" />
-                        </div>
-                    </form>
-                {:else}
+                {#if !chatEnabled}
                     <button on:click={showMessageForm} class="mt-4">Accept?</button>
                 {/if}
             {/if}
+        {/if}
+        {#if chatEnabled}
+            <h3>Conversation with <Name {ndk} pubkey={otherUser.pubkey} /></h3>
+            <div class="conversationContainer flex flex-col gap-2">
+                {#each decryptedMessages as message}
+                    <span class="flex flex-row gap-2 items-center">
+                        <Avatar {ndk} pubkey={otherUser.pubkey} class="rounded-full w-8 h-8 my-0" />
+                        {message}
+                    </span>
+                {/each}
+            </div>
+            <form>
+                <div class="flex flex-col gap-2">
+                    <textarea
+                        placeholder="What do you want to say?"
+                        bind:value={messageToSend}
+                        class="border rounded-md p-2"
+                    ></textarea>
+                    <button on:click={sendMessage}>Submit</button>
+                </div>
+            </form>
         {/if}
     </div>
 </div>

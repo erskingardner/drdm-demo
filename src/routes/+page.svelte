@@ -35,6 +35,7 @@
 
     let initialSecretKey: string | null = null;
     let haveStarted = false;
+    let chatEnabled = false;
 
     /**
      * Generate all the keys, signers, and events needed to start fresh
@@ -178,6 +179,7 @@
             receivedConversationRequest = null;
             conversationRequestSent = false;
             initialSecretKey = null;
+            chatEnabled = false;
 
             console.log("✅ Reset complete");
         }
@@ -201,17 +203,9 @@
         });
     }
 
-    /**
-     * This sends a message to the conversation with the given message
-     * A conversation is an instance of a conversation between two users
-     * The conversation is created when the conversation request is accepted
-     * Conversations have a shared secret and multiple ratchet chains that must be
-     * persisted and updated over time. This will get abstracted out in NDK. For now,
-     * we'll use a simple in-memory object.
-     * @param conversation
-     * @param message
-     */
-    function sendMessage(conversation: Conversation, message: string) {}
+    function enableChatForm() {
+        chatEnabled = true;
+    }
 </script>
 
 <div>
@@ -226,8 +220,10 @@
                 prekey={alicePrekey}
                 prekeySigner={alicePrekeySigner}
                 bind:conversationRequestSent
+                bind:chatEnabled
                 bind:initialSecretKey
                 on:sendConversationRequest={sendConversationRequest}
+                on:chatAccepted={enableChatForm}
             />
             <UserChat
                 ndk={bobNdk}
@@ -236,8 +232,10 @@
                 prekey={bobPrekey}
                 prekeySigner={bobPrekeySigner}
                 bind:conversationRequestSent
+                bind:chatEnabled
                 bind:initialSecretKey
                 on:sendConversationRequest={sendConversationRequest}
+                on:chatAccepted={enableChatForm}
             />
         </div>
     {:else}

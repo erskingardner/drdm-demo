@@ -182,7 +182,7 @@ export class Conversation {
 
         // TODO: Need to handle counts and skipped messages
         const decryptedMessage = nip44.v2.decrypt(event.content, symmetricRatchetOut.messageKey!);
-        console.log("🔓 Decrypted Message", decryptedMessage);
+        console.log("🔓 Successfully Decrypted Conversation Request Message: ", decryptedMessage);
 
         // Delete (as securely as we can in JS) the DH outputs
         DH1 = null;
@@ -197,6 +197,7 @@ export class Conversation {
     public async sendMessage(message: string): Promise<Set<NDKRelay>> {
         // Check we have a signer for the sender
         if (!this.senderSigner.privateKey) throw new Error("Sender private key not set");
+        if (!this.DHSendingKeypair.publicKey) this.generateDHKeypair();
         const encryptedMessage = this.ratchetEncrypt(message);
         const event = new NDKEvent(this.ndk, {
             kind: 444,
@@ -225,8 +226,7 @@ export class Conversation {
             throw new Error("Missing previous index for decryption");
 
         // Ratchet as needed, store message if missed, return decrypted message in the event
-        // Decrypt message
-        const decryptedDvent = this.ratchetDecrypt(event);
+        return this.ratchetDecrypt(event);
     }
 
     public secretKeySet(): boolean {
@@ -294,21 +294,27 @@ export class Conversation {
         // If we have a new DH key, we need to ratchet first
         // Preserving the state of our current message chain
         const dhKey = event.getMatchingTags("dh_sending")[0][1];
+        if (dhKey === undefined) throw new Error("Missing DH key for decryption");
+
         if (hexToBytes(dhKey) !== this.DHReceivingPubkey) {
             this.skipMessageKeys(event);
             this.previousSendingChainMessageCount = this.sendingChainMessageCount;
             this.sendingChainMessageCount = 0;
             this.receivingChainMessageCount = 0;
             this.DHReceivingPubkey = hexToBytes(dhKey);
+
             const newDH = secp256k1
-                .getSharedSecret(this.DHSendingKeypair.privateKey!, this.DHReceivingPubkey)
+                .getSharedSecret(this.DHSendingKeypair.privateKey!, "02" + dhKey)
                 .subarray(1, 33);
             const ratchetOut = turnDhRatchet(this.rootKey!, newDH);
             this.rootKey = ratchetOut.rootKey;
             this.chainKeyReceiving = ratchetOut.chainKey;
             this.generateDHKeypair();
             const newNewDH = secp256k1
-                .getSharedSecret(this.DHSendingKeypair.privateKey!, this.DHReceivingPubkey)
+                .getSharedSecret(
+                    this.DHSendingKeypair.privateKey!,
+                    "02" + bytesToHex(this.DHReceivingPubkey)
+                )
                 .subarray(1, 33);
             const newRatchetOut = turnDhRatchet(this.rootKey!, newNewDH);
             this.rootKey = newRatchetOut.rootKey;
