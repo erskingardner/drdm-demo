@@ -196,7 +196,7 @@
     {#if haveStarted}
         <button on:click={reset}>Reset everything</button>
 
-        <div class="flex flex-row gap-8 my-10">
+        <div class="flex flex-col gap-4 sm:flex-row sm:gap-8 my-10">
             <UserChat
                 ndk={aliceNdk}
                 user={alice}
