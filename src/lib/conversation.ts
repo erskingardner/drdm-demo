@@ -266,12 +266,13 @@ export class Conversation {
             kinds: [10443 as number]
         });
 
-        // No prekey? Can't start a conversation.
+        // No prekey or no prekey_sig tag? Can't start a conversation.
         if (!prekey) return null;
-        const tags = prekey.getMatchingTags("prekey_sig");
 
-        // No tags? Invalid prekey.
-        if (tags.length === 0) return null;
+        // No prekey_sig tag? Invalid prekey.
+        const tags = prekey.getMatchingTags("prekey_sig");
+        if (tags.length !== 1) return null;
+
         const hashedPubkey = bytesToHex(sha256(utf8Encoder.encode(prekey.content)));
 
         // Invalid prekey signature? Invalid prekey.
