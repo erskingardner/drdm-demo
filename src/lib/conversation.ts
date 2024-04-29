@@ -371,6 +371,7 @@ export class Conversation {
 
     /**
      * Skips and stores message keys based on the provided event.
+     *
      * @param until - The number of message keys to skip.
      */
     private skipMessageKeys(until: number): void {
@@ -392,6 +393,11 @@ export class Conversation {
         }
     }
 
+    /**
+     * Performs the Diffie-Hellman ratchet algorithm to update the receiving and sending chain keys.
+     *
+     * @param receivingKey - The public key received from the other party.
+     */
     private dhRatchet(receivingKey: Uint8Array): void {
         this.previousSendingChainMessageCount = this.sendingChainMessageCount;
         this.sendingChainMessageCount = 0;
