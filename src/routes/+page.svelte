@@ -10,11 +10,10 @@
     import { sha256 } from "@noble/hashes/sha256";
     import UserChat from "$lib/components/UserChat.svelte";
 
+    import { dev } from "$app/environment";
     const utf8Encoder = new TextEncoder();
 
-    const relays = ["wss://nos.lol"];
-    // For dev
-    // const relays = ["ws://localhost:8080"];
+    const relays = dev ? ["ws://localhost:8080"] : ["wss://nos.lol"];
 
     let alice: NDKUser | null;
     let aliceNdk = new NDK({ explicitRelayUrls: relays });
