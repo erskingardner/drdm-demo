@@ -1,8 +1,6 @@
 import { expand as hkdf_expand } from "@noble/hashes/hkdf";
 import { sha256 } from "@noble/hashes/sha256";
 
-const INPUT_CONSTANT = "nostr";
-
 type RatchetOutput = {
     rootKey?: Uint8Array;
     chainKey: Uint8Array;
@@ -20,7 +18,7 @@ type RatchetOutput = {
  * @returns An object containing the new chain key and message key.
  */
 export function turnSymmetricRatchet(prevChainKey: Uint8Array): RatchetOutput {
-    const expanded = hkdf_expand(sha256, prevChainKey, INPUT_CONSTANT, 64);
+    const expanded = hkdf_expand(sha256, prevChainKey, "", 64);
     return {
         chainKey: expanded.subarray(0, 32),
         messageKey: expanded.subarray(32)
