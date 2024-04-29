@@ -185,24 +185,6 @@
         }
     }
 
-    /**
-     * Send a conversation request to a user
-     * This does the initial ECDH key exchange and sends the conversation request event
-     * */
-    async function sendConversationRequest(event: CustomEvent) {
-        const { ndk, sender, recipient } = event.detail;
-        console.log("📨 Sending conversation request...");
-        const conversation = new Conversation(
-            ndk,
-            sender,
-            sender.ndk?.signer as NDKPrivateKeySigner,
-            recipient
-        );
-        await conversation.initConversation().then(() => {
-            initialSecretKey = conversation.hexSecretKey();
-        });
-    }
-
     function enableChatForm() {
         chatEnabled = true;
     }
@@ -222,7 +204,6 @@
                 bind:conversationRequestSent
                 bind:chatEnabled
                 bind:initialSecretKey
-                on:sendConversationRequest={sendConversationRequest}
                 on:chatAccepted={enableChatForm}
             />
             <UserChat
@@ -234,7 +215,6 @@
                 bind:conversationRequestSent
                 bind:chatEnabled
                 bind:initialSecretKey
-                on:sendConversationRequest={sendConversationRequest}
                 on:chatAccepted={enableChatForm}
             />
         </div>

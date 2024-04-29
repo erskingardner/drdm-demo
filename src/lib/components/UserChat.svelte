@@ -31,7 +31,12 @@
 
     let messageToSend: string = "";
 
-    let decryptedMessages: string[] = [];
+    type decryptedMessage = {
+        content: string;
+        sender: NDKUser;
+    };
+
+    let decryptedMessages: decryptedMessage[] = [];
 
     let giftWrapSub = ndk.subscribe({ kinds: [1059 as number], "#p": [user.pubkey] });
     giftWrapSub.on("event", async (event) => {
@@ -65,6 +70,8 @@
             if (conversation) {
                 const decryptedEvent = conversation.handleIncomingMessage(unwrapped);
                 console.log("🔓 Decrypted message: ", decryptedEvent!.content);
+                decryptedMessages.push({ content: decryptedEvent!.content, sender: otherUser });
+                decryptedMessages = decryptedMessages;
             } else {
                 console.log("🚫 Received a message but no conversation exists");
             }
@@ -92,12 +99,31 @@
         dispatch("chatAccepted");
     }
 
-    async function sendMessage() {
+    /**
+     * Send a conversation request to a user
+     * This does the initial ECDH key exchange and sends the conversation request event
+     * */
+    async function sendConversationRequest(): Promise<void> {
+        console.log("📨 Sending conversation request...");
+        conversation = new Conversation(ndk, user, ndk.signer as NDKPrivateKeySigner, otherUser);
+        await conversation.initConversation().then(() => {
+            initialSecretKey = conversation?.hexSecretKey()!;
+        });
+    }
+
+    /**
+     * Sends a message in the conversation.
+     *
+     * @returns {Promise<void>} A promise that resolves when the message is sent.
+     */
+    async function sendMessage(): Promise<void> {
         if (!conversation) {
             console.error("🚫 No conversation exists to send a message");
             return;
         }
         await conversation?.sendMessage(messageToSend);
+        decryptedMessages.push({ content: messageToSend, sender: user });
+        decryptedMessages = decryptedMessages;
         // reset input value
         messageToSend = "";
     }
@@ -131,14 +157,10 @@
     <div>
         <button
             disabled={conversationRequestSent}
-            on:click={() => {
+            on:click={async () => {
                 conversationRequestSent = true;
                 sentConversationRequest = true;
-                dispatch("sendConversationRequest", {
-                    ndk: ndk,
-                    sender: user,
-                    recipient: otherUser
-                });
+                await sendConversationRequest();
             }}
         >
             Send a conversation request to <Name {ndk} pubkey={otherUser.pubkey} />
@@ -221,8 +243,12 @@
             <div class="conversationContainer flex flex-col gap-2">
                 {#each decryptedMessages as message}
                     <span class="flex flex-row gap-2 items-center">
-                        <Avatar {ndk} pubkey={otherUser.pubkey} class="rounded-full w-8 h-8 my-0" />
-                        {message}
+                        <Avatar
+                            {ndk}
+                            pubkey={message.sender.pubkey}
+                            class="rounded-full w-8 h-8 my-0"
+                        />
+                        {message.content}
                     </span>
                 {/each}
             </div>
