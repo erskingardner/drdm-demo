@@ -4,7 +4,7 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { schnorr, secp256k1 } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha256";
 import { giftWrap } from "./giftWrap";
-import { extract as hkdf_extract, expand as hkdf_expand } from "@noble/hashes/hkdf";
+import { extract as hkdf_extract } from "@noble/hashes/hkdf";
 import { turnDhRatchet, turnSymmetricRatchet } from "./symmetricalRatchet";
 import { nip44 } from "nostr-tools";
 

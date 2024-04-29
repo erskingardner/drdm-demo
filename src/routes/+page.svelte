@@ -5,7 +5,6 @@
         NDKSubscription,
         NDKUser
     } from "@nostr-dev-kit/ndk";
-    import { Conversation } from "$lib/conversation";
     import { bytesToHex } from "@noble/hashes/utils";
     import { schnorr } from "@noble/curves/secp256k1";
     import { sha256 } from "@noble/hashes/sha256";
