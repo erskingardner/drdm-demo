@@ -9,8 +9,8 @@
     import { schnorr } from "@noble/curves/secp256k1";
     import { sha256 } from "@noble/hashes/sha256";
     import UserChat from "$lib/components/UserChat.svelte";
-
     import { dev } from "$app/environment";
+
     const utf8Encoder = new TextEncoder();
 
     const relays = dev ? ["ws://localhost:8080"] : ["wss://nos.lol"];
