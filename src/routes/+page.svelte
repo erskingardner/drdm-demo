@@ -13,7 +13,9 @@
 
     const utf8Encoder = new TextEncoder();
 
-    const relays = dev ? ["ws://localhost:8080"] : ["wss://nos.lol"];
+    const relays = dev
+        ? ["ws://localhost:8080"]
+        : ["wss://nos.lol", "wss://relay.damus.io", "wss://relay.nostr.band"];
 
     let alice: NDKUser | null;
     let aliceNdk = new NDK({ explicitRelayUrls: relays });
